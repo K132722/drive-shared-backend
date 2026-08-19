@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const FormData = require('form-data');
-const fetch = require('node-fetch');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
@@ -9,7 +9,9 @@ const crypto = require('crypto');
 
 const app = express();
 
+// ============================================================
 // إعداد CORS بمرونة لتجاوز القيود في بيئة iOS/PWA
+// ============================================================
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
@@ -49,7 +51,7 @@ const upload = multer({
 });
 
 // ============================================================
-// قاعدة البيانات المؤقتة (ذاكرة مع مساندة ملفية إن وجدت)
+// قاعدة البيانات المؤقتة (ذاكرة مع مساندة ملفية)
 // ============================================================
 const DB_FILE = path.join('/tmp', 'files-database.json');
 let filesDatabase = {};
@@ -132,8 +134,10 @@ app.post('/api/upload-to-telegram', upload.single('file'), async (req, res) => {
         filesDatabase[filename] = fileInfo; // الربط بالاسم والـ ID معاً
         saveDatabase();
 
-        // تنظيف الملف المؤقت
-        if (fs.existsSync(localFilePath)) fs.unlinkSync(localFilePath);
+        // تنظيف الملف المؤقت فور الانتهاء
+        if (fs.existsSync(localFilePath)) {
+            fs.unlinkSync(localFilePath);
+        }
 
         return res.json({
             success: true,
@@ -150,7 +154,9 @@ app.post('/api/upload-to-telegram', upload.single('file'), async (req, res) => {
 
     } catch (err) {
         if (localFilePath && fs.existsSync(localFilePath)) {
-            fs.unlinkSync(localFilePath);
+            try {
+                fs.unlinkSync(localFilePath);
+            } catch (e) {}
         }
         console.error('Upload Error:', err);
         res.status(500).json({ error: err.message });
@@ -194,15 +200,24 @@ app.get('/files/:filename', async (req, res) => {
         // تمرير الـ Stream مباشرة
         tgStream.body.pipe(res);
 
+        // تنظيف الـ Stream عند إغلاق العميل للاتصال
+        req.on('close', () => {
+            if (tgStream.body && typeof tgStream.body.destroy === 'function') {
+                tgStream.body.destroy();
+            }
+        });
+
     } catch (err) {
         console.error('Proxy Fetch Error:', err);
-        res.status(500).json({ error: 'حدث خطأ في جلب الملف' });
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'حدث خطأ في جلب الملف' });
+        }
     }
 });
 
 // ============================================================
 // 3. حذف ملف من قاعدة البيانات
-// ============= ===============================================
+// ============================================================
 app.delete('/api/files/:fileId', (req, res) => {
     const fileId = req.params.fileId;
     const entry = filesDatabase[fileId];
@@ -224,7 +239,7 @@ app.get('/health', (req, res) => {
     res.json({ 
         status: 'ok', 
         botConnected: !!TELEGRAM_BOT_TOKEN,
-        storedFiles: Object.keys(filesDatabase).length / 2,
+        storedFiles: Math.floor(Object.keys(filesDatabase).length / 2),
         timestamp: new Date().toISOString()
     });
 });
