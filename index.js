@@ -10,6 +10,11 @@ const crypto = require('crypto');
 const app = express();
 
 // ============================================================
+// تمكين trust proxy للتعرف على بروتوكول HTTPS في بيئات Cloud مثل Render
+// ============================================================
+app.enable('trust proxy');
+
+// ============================================================
 // إعداد CORS بمرونة لتجاوز القيود في بيئة iOS/PWA
 // ============================================================
 app.use(cors({
@@ -92,6 +97,7 @@ app.post('/api/upload-to-telegram', upload.single('file'), async (req, res) => {
         const fileId = crypto.randomBytes(12).toString('hex');
         const filename = req.file.filename;
 
+        // توليد رابط ممرر عبر البروتوكول الآمن
         const hostUrl = `${req.protocol}://${req.get('host')}`;
         const permanentLink = `${hostUrl}/files/${filename}`;
 
