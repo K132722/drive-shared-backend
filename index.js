@@ -6,12 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const crypto = require('crypto');
-const { Readable } = require('stream'); // تم إضافة مكتبة Stream للتحويل
 
 const app = express();
-
-
-
 
 // ============================================================
 // تمكين trust proxy للتعرف على بروتوكول HTTPS في بيئات Cloud مثل Render
@@ -207,13 +203,13 @@ app.get('/files/:filename', async (req, res) => {
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         res.setHeader('Access-Control-Allow-Origin', '*');
 
-        // تحويل Web Stream إلى Node Stream لمنع الانهيار (Crash)
-        Readable.fromWeb(tgStream.body).pipe(res);
+        // التمرير المباشر لـ Node Stream عبر pipe دون محاولة التحويل لـ WebStream
+        tgStream.body.pipe(res);
 
         // إلغاء الـ Stream بأمان عند إغلاق العميل للاتصال
         req.on('close', () => {
-            if (tgStream.body && typeof tgStream.body.cancel === 'function') {
-                tgStream.body.cancel();
+            if (tgStream.body && typeof tgStream.body.destroy === 'function') {
+                tgStream.body.destroy();
             }
         });
 
