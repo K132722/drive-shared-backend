@@ -170,19 +170,25 @@ app.post('/api/upload-to-telegram', upload.single('file'), async (req, res) => {
 });
 
 // ============================================================
-// 2. معاينة وتنزيل الملفات المرفوعة من تلجرام (Proxy Stream)
+// 2. معاينة وتنزيل الملفات (يدعم الاسم والـ telegramFileId المباشر)
 // ============================================================
 app.get('/files/:filename', async (req, res) => {
     try {
         const filename = req.params.filename;
-        const fileEntry = filesDatabase[filename];
+        const fileEntry = filesDatabase[filename] || {};
 
-        if (!fileEntry || !fileEntry.telegramFileId) {
-            return res.status(404).json({ error: 'الملف غير موجود في قاعدة البيانات' });
+        // جلب telegramFileId إما من السيرفر أو من query param (للضمان بعد إعادة التشغيل)
+        const telegramFileId = req.query.fileId || fileEntry.telegramFileId;
+        const mimeType = req.query.mime || fileEntry.mimeType || 'application/octet-stream';
+        const originalName = req.query.name || fileEntry.originalName || filename;
+        const fileSize = fileEntry.fileSize || '';
+
+        if (!telegramFileId) {
+            return res.status(404).json({ error: 'الملف غير موجود في قاعدة البيانات ولم يتم توفير fileId' });
         }
 
         // جلب مسار الملف المباشر من API التلجرام
-        const fileUrlResponse = await fetch(`${TELEGRAM_API}/getFile?file_id=${fileEntry.telegramFileId}`);
+        const fileUrlResponse = await fetch(`${TELEGRAM_API}/getFile?file_id=${telegramFileId}`);
         const fileUrlData = await fileUrlResponse.json();
 
         if (!fileUrlData.ok) {
@@ -197,13 +203,13 @@ app.get('/files/:filename', async (req, res) => {
         }
 
         // ضبط الترويسات بالكامل لتسهيل المعاينة والتنزيل محلياً على iOS/IndexedDB
-        res.setHeader('Content-Type', fileEntry.mimeType || 'application/octet-stream');
-        res.setHeader('Content-Length', tgStream.headers.get('content-length') || fileEntry.fileSize);
-        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileEntry.originalName)}"`);
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', tgStream.headers.get('content-length') || fileSize);
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(originalName)}"`);
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         res.setHeader('Access-Control-Allow-Origin', '*');
 
-        // التمرير المباشر لـ Node Stream عبر pipe دون محاولة التحويل لـ WebStream
+        // التمرير المباشر لـ Node Stream عبر pipe
         tgStream.body.pipe(res);
 
         // إلغاء الـ Stream بأمان عند إغلاق العميل للاتصال
