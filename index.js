@@ -10,14 +10,8 @@ const admin = require('firebase-admin');
 
 const app = express();
 
-// ============================================================
-// تمكين trust proxy للتعرف على بروتوكول HTTPS في بيئات Cloud مثل Render
-// ============================================================
 app.enable('trust proxy');
 
-// ============================================================
-// إعداد CORS بمرونة لتجاوز القيود في بيئة iOS/PWA
-// ============================================================
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
@@ -35,7 +29,7 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '-1003947140504';
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
 // ============================================================
-// إعداد المجلد المؤقت لتسهيل معالجة Multer قبل الرفع
+// إعداد المجلد المؤقت لتسهيل معالجة Multer
 // ============================================================
 const uploadDir = path.join('/tmp', 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -53,11 +47,11 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 50 * 1024 * 1024 } // حد أقصى 50MB
+    limits: { fileSize: 50 * 1024 * 1024 }
 });
 
 // ============================================================
-// قاعدة البيانات المؤقتة (ذاكرة مع مساندة ملفية)
+// قاعدة البيانات المؤقتة
 // ============================================================
 const DB_FILE = path.join('/tmp', 'files-database.json');
 let filesDatabase = {};
@@ -83,7 +77,7 @@ function saveDatabase() {
 loadDatabase();
 
 // ============================================================
-// 1. رفع الملف إلى تلجرام وتخزين البيانات
+// 1. رفع الملف إلى تلجرام
 // ============================================================
 app.post('/api/upload-to-telegram', upload.single('file'), async (req, res) => {
     let localFilePath = null;
@@ -98,11 +92,9 @@ app.post('/api/upload-to-telegram', upload.single('file'), async (req, res) => {
         const fileId = crypto.randomBytes(12).toString('hex');
         const filename = req.file.filename;
 
-        // توليد رابط ممرر عبر البروتوكول الآمن
         const hostUrl = `${req.protocol}://${req.get('host')}`;
         const permanentLink = `${hostUrl}/files/${filename}`;
 
-        // رفع الملف كـ Stream إلى قناة/شات تلجرام
         const formData = new FormData();
         formData.append('chat_id', TELEGRAM_CHAT_ID);
         formData.append('document', fs.createReadStream(localFilePath), {
@@ -138,10 +130,9 @@ app.post('/api/upload-to-telegram', upload.single('file'), async (req, res) => {
         };
 
         filesDatabase[fileId] = fileInfo;
-        filesDatabase[filename] = fileInfo; // الربط بالاسم والـ ID معاً
+        filesDatabase[filename] = fileInfo;
         saveDatabase();
 
-        // تنظيف الملف المؤقت فور الانتهاء
         if (fs.existsSync(localFilePath)) {
             fs.unlinkSync(localFilePath);
         }
@@ -171,14 +162,13 @@ app.post('/api/upload-to-telegram', upload.single('file'), async (req, res) => {
 });
 
 // ============================================================
-// 2. معاينة وتنزيل الملفات (يدعم الاسم والـ telegramFileId المباشر)
+// 2. معاينة وتنزيل الملفات
 // ============================================================
 app.get('/files/:filename', async (req, res) => {
     try {
         const filename = req.params.filename;
         const fileEntry = filesDatabase[filename] || {};
 
-        // جلب telegramFileId إما من السيرفر أو من query param (للضمان بعد إعادة التشغيل)
         const telegramFileId = req.query.fileId || fileEntry.telegramFileId;
         const mimeType = req.query.mime || fileEntry.mimeType || 'application/octet-stream';
         const originalName = req.query.name || fileEntry.originalName || filename;
@@ -188,7 +178,6 @@ app.get('/files/:filename', async (req, res) => {
             return res.status(404).json({ error: 'الملف غير موجود في قاعدة البيانات ولم يتم توفير fileId' });
         }
 
-        // جلب مسار الملف المباشر من API التلجرام
         const fileUrlResponse = await fetch(`${TELEGRAM_API}/getFile?file_id=${telegramFileId}`);
         const fileUrlData = await fileUrlResponse.json();
 
@@ -203,17 +192,14 @@ app.get('/files/:filename', async (req, res) => {
             return res.status(502).json({ error: 'فشل استجلاب الملف من خوادم تلجرام' });
         }
 
-        // ضبط الترويسات بالكامل لتسهيل المعاينة والتنزيل محلياً على iOS/IndexedDB
         res.setHeader('Content-Type', mimeType);
         res.setHeader('Content-Length', tgStream.headers.get('content-length') || fileSize);
         res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(originalName)}"`);
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         res.setHeader('Access-Control-Allow-Origin', '*');
 
-        // التمرير المباشر لـ Node Stream عبر pipe
         tgStream.body.pipe(res);
 
-        // إلغاء الـ Stream بأمان عند إغلاق العميل للاتصال
         req.on('close', () => {
             if (tgStream.body && typeof tgStream.body.destroy === 'function') {
                 tgStream.body.destroy();
@@ -229,7 +215,7 @@ app.get('/files/:filename', async (req, res) => {
 });
 
 // ============================================================
-// 3. حذف ملف من قاعدة البيانات
+// 3. حذف ملف
 // ============================================================
 app.delete('/api/files/:fileId', (req, res) => {
     const fileId = req.params.fileId;
@@ -258,43 +244,35 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================================
-// 5. تهيئة Firebase Admin SDK بأمان
+// 5. تهيئة Firebase Admin SDK بمتغيرات البيئة حصراً
 // ============================================================
 let fcmInitialized = false;
 
 try {
-    let serviceAccount;
-    try {
-        serviceAccount = require('./serviceAccountKey.json');
-        console.log('✅ تم تحميل serviceAccountKey.json');
-    } catch (e) {
-        console.warn('⚠️ ملف serviceAccountKey.json غير موجود، استخدام متغيرات البيئة');
-        serviceAccount = {
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL
-        };
-    }
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : null;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
-    if (serviceAccount && serviceAccount.projectId && serviceAccount.privateKey && serviceAccount.clientEmail) {
+    if (projectId && privateKey && clientEmail) {
         admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
+            credential: admin.credential.cert({
+                projectId: projectId,
+                privateKey: privateKey,
+                clientEmail: clientEmail
+            }),
             databaseURL: process.env.FIREBASE_DATABASE_URL || "https://pwa-app-a8e58-default-rtdb.firebaseio.com"
         });
         fcmInitialized = true;
         console.log('✅ Firebase Admin SDK initialized successfully!');
     } else {
-        console.warn('⚠️ Firebase Admin SDK: بيانات غير مكتملة');
-        console.warn(`   - projectId: ${!!serviceAccount?.projectId}`);
-        console.warn(`   - privateKey: ${!!serviceAccount?.privateKey}`);
-        console.warn(`   - clientEmail: ${!!serviceAccount?.clientEmail}`);
+        console.warn('⚠️ Firebase Admin SDK: متغيرات البيئة غير مكتملة');
     }
 } catch (error) {
     console.error('❌ فشل تهيئة Firebase Admin SDK:', error.message);
 }
 
 // ============================================================
-// 6. نقاط نهاية الإشعارات (FCM)
+// 6. نقاط نهاية الإشعارات
 // ============================================================
 app.post('/api/send-notification', async (req, res) => {
     try {
@@ -318,46 +296,30 @@ app.post('/api/send-notification', async (req, res) => {
                 sound: 'default'
             },
             data: data || {},
-            apns: {
-                payload: {
-                    aps: {
-                        sound: 'default',
-                        badge: 1
-                    }
-                }
-            },
-            webpush: {
-                headers: {
-                    Urgency: 'high'
-                }
-            }
+            apns: { payload: { aps: { sound: 'default', badge: 1 } } },
+            webpush: { headers: { Urgency: 'high' } }
         };
         
         const responses = [];
         for (const token of tokens) {
             try {
-                const response = await admin.messaging().send({
-                    ...message,
-                    token: token
-                });
+                const response = await admin.messaging().send({ ...message, token });
                 responses.push({ token, success: true, response });
             } catch (error) {
                 responses.push({ token, success: false, error: error.message });
             }
         }
         
-        const sentCount = responses.filter(r => r.success).length;
-        
         res.json({
             success: true,
-            sentCount: sentCount,
+            sentCount: responses.filter(r => r.success).length,
             total: tokens.length,
             responses: responses
         });
         
     } catch (error) {
         console.error('خطأ في إرسال الإشعار:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -374,10 +336,7 @@ app.post('/api/send-to-all', async (req, res) => {
         
         const snapshot = await admin.database().ref('fcm_tokens').once('value');
         const tokensData = snapshot.val() || {};
-        
-        const tokens = Object.values(tokensData)
-            .filter(t => t.token)
-            .map(t => t.token);
+        const tokens = Object.values(tokensData).filter(t => t.token).map(t => t.token);
         
         if (tokens.length === 0) {
             return res.status(404).json({ error: 'لا يوجد مستخدمين مسجلين' });
@@ -390,39 +349,23 @@ app.post('/api/send-to-all', async (req, res) => {
                 sound: 'default'
             },
             data: data || {},
-            apns: {
-                payload: {
-                    aps: {
-                        sound: 'default',
-                        badge: 1
-                    }
-                }
-            },
-            webpush: {
-                headers: {
-                    Urgency: 'high'
-                }
-            }
+            apns: { payload: { aps: { sound: 'default', badge: 1 } } },
+            webpush: { headers: { Urgency: 'high' } }
         };
         
         const responses = [];
         for (const token of tokens) {
             try {
-                const response = await admin.messaging().send({
-                    ...message,
-                    token: token
-                });
+                const response = await admin.messaging().send({ ...message, token });
                 responses.push({ token, success: true, response });
             } catch (error) {
                 responses.push({ token, success: false, error: error.message });
             }
         }
         
-        const sentCount = responses.filter(r => r.success).length;
-        
         res.json({
             success: true,
-            sentCount: sentCount,
+            sentCount: responses.filter(r => r.success).length,
             total: tokens.length,
             responses: responses
         });
@@ -433,11 +376,5 @@ app.post('/api/send-to-all', async (req, res) => {
     }
 });
 
-// ============================================================
-// تشغيل السيرفر
-// ============================================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log('✅ نظام الإشعارات في الخادم جاهز');
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
