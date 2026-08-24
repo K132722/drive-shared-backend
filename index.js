@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const crypto = require('crypto');
+const admin = require('firebase-admin');
 
 const app = express();
 
@@ -256,39 +257,18 @@ app.get('/health', (req, res) => {
     });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-// ====== إضافة إلى server.js ======
-
-const admin = require('firebase-admin');
-
-// تحميل ملف الخدمة - تأكد من وجود الملف في المسار الصحيح
-let serviceAccount;
-try {
-    serviceAccount = require('./serviceAccountKey.json');
-} catch (e) {
-    console.warn('⚠️ ملف serviceAccountKey.json غير موجود، استخدم متغيرات البيئة');
-    serviceAccount = {
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL
-    };
-}
-
-// تهيئة Firebase Admin SDK
-// ====== تهيئة Firebase Admin SDK بأمان ======
-let admin = null;
+// ============================================================
+// 5. تهيئة Firebase Admin SDK بأمان
+// ============================================================
 let fcmInitialized = false;
 
 try {
-    // محاولة تحميل الملف أولاً
     let serviceAccount;
     try {
         serviceAccount = require('./serviceAccountKey.json');
         console.log('✅ تم تحميل serviceAccountKey.json');
     } catch (e) {
         console.warn('⚠️ ملف serviceAccountKey.json غير موجود، استخدام متغيرات البيئة');
-        // استخدام متغيرات البيئة كبديل
         serviceAccount = {
             projectId: process.env.FIREBASE_PROJECT_ID,
             privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
@@ -296,9 +276,7 @@ try {
         };
     }
 
-    // التحقق من صحة البيانات قبل التهيئة
     if (serviceAccount && serviceAccount.projectId && serviceAccount.privateKey && serviceAccount.clientEmail) {
-        admin = require('firebase-admin');
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
             databaseURL: process.env.FIREBASE_DATABASE_URL || "https://pwa-app-a8e58-default-rtdb.firebaseio.com"
@@ -315,7 +293,9 @@ try {
     console.error('❌ فشل تهيئة Firebase Admin SDK:', error.message);
 }
 
-// ====== نقطة نهاية لإرسال الإشعارات (مع التحقق من التهيئة) ======
+// ============================================================
+// 6. نقاط نهاية الإشعارات (FCM)
+// ============================================================
 app.post('/api/send-notification', async (req, res) => {
     try {
         const { tokens, title, body, data } = req.body;
@@ -324,7 +304,7 @@ app.post('/api/send-notification', async (req, res) => {
             return res.status(400).json({ error: 'لا توجد توكنات' });
         }
         
-        if (!fcmInitialized || !admin) {
+        if (!fcmInitialized) {
             return res.status(503).json({ 
                 error: 'خدمة الإشعارات غير متاحة حالياً',
                 details: 'Firebase Admin SDK لم يتم تهيئته'
@@ -381,12 +361,11 @@ app.post('/api/send-notification', async (req, res) => {
     }
 });
 
-// ====== نقطة نهاية لإرسال إشعار للجميع ======
 app.post('/api/send-to-all', async (req, res) => {
     try {
         const { title, body, data } = req.body;
         
-        if (!fcmInitialized || !admin) {
+        if (!fcmInitialized) {
             return res.status(503).json({ 
                 error: 'خدمة الإشعارات غير متاحة حالياً',
                 details: 'Firebase Admin SDK لم يتم تهيئته'
@@ -454,4 +433,11 @@ app.post('/api/send-to-all', async (req, res) => {
     }
 });
 
-console.log('✅ نظام الإشعارات في الخادم جاهز');
+// ============================================================
+// تشغيل السيرفر
+// ============================================================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log('✅ نظام الإشعارات في الخادم جاهز');
+});
