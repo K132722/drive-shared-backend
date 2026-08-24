@@ -246,14 +246,36 @@ app.get('/health', (req, res) => {
 // ============================================================
 // 5. تهيئة Firebase Admin SDK بمتغير FIREBASE_JSON_BASE64
 // ============================================================
+// ============================================================
+// 5. تهيئة Firebase Admin SDK بمتغير FIREBASE_JSON_BASE64
+// ============================================================
 let fcmInitialized = false;
 
 try {
     const serviceAccountBase64 = process.env.FIREBASE_JSON_BASE64;
     
     if (serviceAccountBase64) {
-        const jsonString = Buffer.from(serviceAccountBase64.trim(), 'base64').toString('utf8');
+        // فك التشفير وتنظيف أسطر التحكم والرموز الخفية لمنع أخطاء الـ JSON
+        let jsonString = Buffer.from(serviceAccountBase64.trim(), 'base64').toString('utf8');
+        
+        jsonString = jsonString
+            .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // إزالة أحرف التحكم الضارة
+            .replace(/\n/g, "\\n")                         // إعادة تحويل الأسطر إلى صيغة نصية آمنة للـ JSON.parse
+            .replace(/\r/g, "");
+
+        // استخراج الكائن الأساسي
+        const firstBrace = jsonString.indexOf('{');
+        const lastBrace = jsonString.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+        }
+
         const serviceAccount = JSON.parse(jsonString);
+
+        // إعادة تصحيح المفتاح الخاص ليعمل مع OpenSSL بأسطر حقيقية
+        if (serviceAccount.private_key) {
+            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+        }
 
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
@@ -267,6 +289,7 @@ try {
 } catch (error) {
     console.error('❌ فشل تهيئة Firebase Admin SDK:', error.message);
 }
+
 
 // ============================================================
 // 6. نقاط نهاية الإشعارات
