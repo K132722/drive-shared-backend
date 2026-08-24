@@ -276,17 +276,46 @@ try {
 }
 
 // تهيئة Firebase Admin SDK
-if (serviceAccount && serviceAccount.projectId) {
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL: "https://pwa-app-a8e58-default-rtdb.firebaseio.com"
-    });
-    console.log('✅ Firebase Admin SDK initialized successfully!');
-} else {
-    console.warn('⚠️ Firebase Admin SDK لم يتم تهيئته');
+// ====== تهيئة Firebase Admin SDK بأمان ======
+let admin = null;
+let fcmInitialized = false;
+
+try {
+    // محاولة تحميل الملف أولاً
+    let serviceAccount;
+    try {
+        serviceAccount = require('./serviceAccountKey.json');
+        console.log('✅ تم تحميل serviceAccountKey.json');
+    } catch (e) {
+        console.warn('⚠️ ملف serviceAccountKey.json غير موجود، استخدام متغيرات البيئة');
+        // استخدام متغيرات البيئة كبديل
+        serviceAccount = {
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+        };
+    }
+
+    // التحقق من صحة البيانات قبل التهيئة
+    if (serviceAccount && serviceAccount.projectId && serviceAccount.privateKey && serviceAccount.clientEmail) {
+        admin = require('firebase-admin');
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            databaseURL: process.env.FIREBASE_DATABASE_URL || "https://pwa-app-a8e58-default-rtdb.firebaseio.com"
+        });
+        fcmInitialized = true;
+        console.log('✅ Firebase Admin SDK initialized successfully!');
+    } else {
+        console.warn('⚠️ Firebase Admin SDK: بيانات غير مكتملة');
+        console.warn(`   - projectId: ${!!serviceAccount?.projectId}`);
+        console.warn(`   - privateKey: ${!!serviceAccount?.privateKey}`);
+        console.warn(`   - clientEmail: ${!!serviceAccount?.clientEmail}`);
+    }
+} catch (error) {
+    console.error('❌ فشل تهيئة Firebase Admin SDK:', error.message);
 }
 
-// ====== نقطة نهاية لإرسال الإشعارات ======
+// ====== نقطة نهاية لإرسال الإشعارات (مع التحقق من التهيئة) ======
 app.post('/api/send-notification', async (req, res) => {
     try {
         const { tokens, title, body, data } = req.body;
@@ -295,8 +324,11 @@ app.post('/api/send-notification', async (req, res) => {
             return res.status(400).json({ error: 'لا توجد توكنات' });
         }
         
-        if (!admin.apps || admin.apps.length === 0) {
-            return res.status(500).json({ error: 'Firebase Admin SDK غير مهيأ' });
+        if (!fcmInitialized || !admin) {
+            return res.status(503).json({ 
+                error: 'خدمة الإشعارات غير متاحة حالياً',
+                details: 'Firebase Admin SDK لم يتم تهيئته'
+            });
         }
         
         const message = {
@@ -354,8 +386,11 @@ app.post('/api/send-to-all', async (req, res) => {
     try {
         const { title, body, data } = req.body;
         
-        if (!admin.apps || admin.apps.length === 0) {
-            return res.status(500).json({ error: 'Firebase Admin SDK غير مهيأ' });
+        if (!fcmInitialized || !admin) {
+            return res.status(503).json({ 
+                error: 'خدمة الإشعارات غير متاحة حالياً',
+                details: 'Firebase Admin SDK لم يتم تهيئته'
+            });
         }
         
         const snapshot = await admin.database().ref('fcm_tokens').once('value');
