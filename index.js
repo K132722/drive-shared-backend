@@ -258,3 +258,165 @@ app.get('/health', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// ====== إضافة إلى server.js ======
+
+const admin = require('firebase-admin');
+
+// تحميل ملف الخدمة - تأكد من وجود الملف في المسار الصحيح
+let serviceAccount;
+try {
+    serviceAccount = require('./serviceAccountKey.json');
+} catch (e) {
+    console.warn('⚠️ ملف serviceAccountKey.json غير موجود، استخدم متغيرات البيئة');
+    serviceAccount = {
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+    };
+}
+
+// تهيئة Firebase Admin SDK
+if (serviceAccount && serviceAccount.projectId) {
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: "https://pwa-app-a8e58-default-rtdb.firebaseio.com"
+    });
+    console.log('✅ Firebase Admin SDK initialized successfully!');
+} else {
+    console.warn('⚠️ Firebase Admin SDK لم يتم تهيئته');
+}
+
+// ====== نقطة نهاية لإرسال الإشعارات ======
+app.post('/api/send-notification', async (req, res) => {
+    try {
+        const { tokens, title, body, data } = req.body;
+        
+        if (!tokens || tokens.length === 0) {
+            return res.status(400).json({ error: 'لا توجد توكنات' });
+        }
+        
+        if (!admin.apps || admin.apps.length === 0) {
+            return res.status(500).json({ error: 'Firebase Admin SDK غير مهيأ' });
+        }
+        
+        const message = {
+            notification: {
+                title: title || '📢 تحديث جديد',
+                body: body || '',
+                sound: 'default'
+            },
+            data: data || {},
+            apns: {
+                payload: {
+                    aps: {
+                        sound: 'default',
+                        badge: 1
+                    }
+                }
+            },
+            webpush: {
+                headers: {
+                    Urgency: 'high'
+                }
+            }
+        };
+        
+        const responses = [];
+        for (const token of tokens) {
+            try {
+                const response = await admin.messaging().send({
+                    ...message,
+                    token: token
+                });
+                responses.push({ token, success: true, response });
+            } catch (error) {
+                responses.push({ token, success: false, error: error.message });
+            }
+        }
+        
+        const sentCount = responses.filter(r => r.success).length;
+        
+        res.json({
+            success: true,
+            sentCount: sentCount,
+            total: tokens.length,
+            responses: responses
+        });
+        
+    } catch (error) {
+        console.error('خطأ في إرسال الإشعار:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ====== نقطة نهاية لإرسال إشعار للجميع ======
+app.post('/api/send-to-all', async (req, res) => {
+    try {
+        const { title, body, data } = req.body;
+        
+        if (!admin.apps || admin.apps.length === 0) {
+            return res.status(500).json({ error: 'Firebase Admin SDK غير مهيأ' });
+        }
+        
+        const snapshot = await admin.database().ref('fcm_tokens').once('value');
+        const tokensData = snapshot.val() || {};
+        
+        const tokens = Object.values(tokensData)
+            .filter(t => t.token)
+            .map(t => t.token);
+        
+        if (tokens.length === 0) {
+            return res.status(404).json({ error: 'لا يوجد مستخدمين مسجلين' });
+        }
+        
+        const message = {
+            notification: {
+                title: title || '📢 تحديث جديد',
+                body: body || '',
+                sound: 'default'
+            },
+            data: data || {},
+            apns: {
+                payload: {
+                    aps: {
+                        sound: 'default',
+                        badge: 1
+                    }
+                }
+            },
+            webpush: {
+                headers: {
+                    Urgency: 'high'
+                }
+            }
+        };
+        
+        const responses = [];
+        for (const token of tokens) {
+            try {
+                const response = await admin.messaging().send({
+                    ...message,
+                    token: token
+                });
+                responses.push({ token, success: true, response });
+            } catch (error) {
+                responses.push({ token, success: false, error: error.message });
+            }
+        }
+        
+        const sentCount = responses.filter(r => r.success).length;
+        
+        res.json({
+            success: true,
+            sentCount: sentCount,
+            total: tokens.length,
+            responses: responses
+        });
+        
+    } catch (error) {
+        console.error('خطأ:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+console.log('✅ نظام الإشعارات في الخادم جاهز');
