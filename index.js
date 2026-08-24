@@ -249,22 +249,22 @@ app.get('/health', (req, res) => {
 // ============================================================
 // 5. تهيئة Firebase Admin SDK بمتغيرات البيئة حصراً
 // ============================================================
+// ============================================================
+// 5. تهيئة Firebase Admin SDK بمتغيرات البيئة حصراً
+// ============================================================
 let fcmInitialized = false;
 
 try {
     const projectId = process.env.FIREBASE_PROJECT_ID;
-    let rawPrivateKey = process.env.FIREBASE_PRIVATE_KEY;
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
-    let privateKey = null;
-
-    if (rawPrivateKey) {
-        // إذا كان المفتاح مشفراً بـ Base64 يتم فكه، وإلا يتعامل معه كنص عادي
-        if (!rawPrivateKey.includes('BEGIN PRIVATE KEY')) {
-            privateKey = Buffer.from(rawPrivateKey, 'base64').toString('utf8');
-        } else {
-            privateKey = rawPrivateKey.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
-        }
+    if (privateKey) {
+        // تنظيف الأقواس ومعالجة الرموز المزدوجة والمفردة لـ \n
+        privateKey = privateKey
+            .replace(/^["']|["']$/g, '')
+            .replace(/\\\\n/g, '\n')
+            .replace(/\\n/g, '\n');
     }
 
     if (projectId && privateKey && clientEmail) {
