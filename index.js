@@ -249,42 +249,35 @@ app.get('/health', (req, res) => {
 // ============================================================
 // 5. تهيئة Firebase Admin SDK بمتغير FIREBASE_JSON_BASE64
 // ============================================================
+// ============================================================
+// 5. تهيئة Firebase Admin SDK
+// ============================================================
 let fcmInitialized = false;
 
 try {
-    const serviceAccountBase64 = process.env.FIREBASE_JSON_BASE64;
-    
-    if (serviceAccountBase64) {
-        // فك التشفير وتنظيف أسطر التحكم والرموز الخفية لمنع أخطاء الـ JSON
-        let jsonString = Buffer.from(serviceAccountBase64.trim(), 'base64').toString('utf8');
-        
-        jsonString = jsonString
-            .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // إزالة أحرف التحكم الضارة
-            .replace(/\n/g, "\\n")                         // إعادة تحويل الأسطر إلى صيغة نصية آمنة للـ JSON.parse
-            .replace(/\r/g, "");
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
-        // استخراج الكائن الأساسي
-        const firstBrace = jsonString.indexOf('{');
-        const lastBrace = jsonString.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace !== -1) {
-            jsonString = jsonString.substring(firstBrace, lastBrace + 1);
-        }
-
-        const serviceAccount = JSON.parse(jsonString);
-
-        // إعادة تصحيح المفتاح الخاص ليعمل مع OpenSSL بأسطر حقيقية
-        if (serviceAccount.private_key) {
-            serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
-        }
+    if (projectId && privateKey && clientEmail) {
+        // تنظيف العلامات ومعالجة أسطر \n بطريقة آمنة ومباشرة
+        privateKey = privateKey
+            .trim()
+            .replace(/^["']|["']$/g, '')
+            .replace(/\\n/g, '\n');
 
         admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
+            credential: admin.credential.cert({
+                projectId: projectId,
+                privateKey: privateKey,
+                clientEmail: clientEmail
+            }),
             databaseURL: process.env.FIREBASE_DATABASE_URL || "https://pwa-app-a8e58-default-rtdb.firebaseio.com"
         });
         fcmInitialized = true;
-        console.log('✅ Firebase Admin SDK initialized successfully via Base64 JSON!');
+        console.log('✅ Firebase Admin SDK initialized successfully!');
     } else {
-        console.warn('⚠️ FIREBASE_JSON_BASE64 غير موجود في متغيرات البيئة');
+        console.warn('⚠️ Firebase Admin SDK: متغيرات البيئة غير مكتملة');
     }
 } catch (error) {
     console.error('❌ فشل تهيئة Firebase Admin SDK:', error.message);
