@@ -244,59 +244,29 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================================
-// 5. تهيئة Firebase Admin SDK بمتغيرات البيئة حصراً
-// ============================================================
-// ============================================================
-// 5. تهيئة Firebase Admin SDK بمتغيرات البيئة حصراً
-// ============================================================
-// ============================================================
-// 5. تهيئة Firebase Admin SDK بمتغيرات البيئة حصراً
-// ============================================================
-// ============================================================
-// 5. تهيئة Firebase Admin SDK بمتغيرات البيئة حصراً
+// 5. تهيئة Firebase Admin SDK بمتغير FIREBASE_JSON_BASE64
 // ============================================================
 let fcmInitialized = false;
 
 try {
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    let rawPrivateKey = process.env.FIREBASE_PRIVATE_KEY;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const serviceAccountBase64 = process.env.FIREBASE_JSON_BASE64;
+    
+    if (serviceAccountBase64) {
+        const jsonString = Buffer.from(serviceAccountBase64.trim(), 'base64').toString('utf8');
+        const serviceAccount = JSON.parse(jsonString);
 
-    let privateKey = null;
-
-    if (rawPrivateKey) {
-        // تنظيف العلامات الزائدة
-        rawPrivateKey = rawPrivateKey.replace(/^["']|["']$/g, '');
-
-        // التثبت إذا كان المفتاح مشفراً بـ Base64 أو نص عادي
-        if (!rawPrivateKey.includes('BEGIN PRIVATE KEY')) {
-            privateKey = Buffer.from(rawPrivateKey, 'base64').toString('utf8');
-        } else {
-            privateKey = rawPrivateKey
-                .replace(/\\\\n/g, '\n')
-                .replace(/\\n/g, '\n');
-        }
-    }
-
-    if (projectId && privateKey && clientEmail) {
         admin.initializeApp({
-            credential: admin.credential.cert({
-                projectId: projectId,
-                privateKey: privateKey,
-                clientEmail: clientEmail
-            }),
+            credential: admin.credential.cert(serviceAccount),
             databaseURL: process.env.FIREBASE_DATABASE_URL || "https://pwa-app-a8e58-default-rtdb.firebaseio.com"
         });
         fcmInitialized = true;
-        console.log('✅ Firebase Admin SDK initialized successfully!');
+        console.log('✅ Firebase Admin SDK initialized successfully via Base64 JSON!');
     } else {
-        console.warn('⚠️ Firebase Admin SDK: متغيرات البيئة غير مكتملة');
+        console.warn('⚠️ FIREBASE_JSON_BASE64 غير موجود في متغيرات البيئة');
     }
 } catch (error) {
     console.error('❌ فشل تهيئة Firebase Admin SDK:', error.message);
 }
-
-
 
 // ============================================================
 // 6. نقاط نهاية الإشعارات
@@ -346,7 +316,7 @@ app.post('/api/send-notification', async (req, res) => {
         
     } catch (error) {
         console.error('خطأ في إرسال الإشعار:', error);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: error.message });
     }
 });
 
